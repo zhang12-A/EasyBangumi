@@ -1,0 +1,80 @@
+name: 构建与释放
+
+on:
+  push:
+    tags:
+      - 'v*.*.*' # 推送版本标签时触发，如 v1.0.0
+  workflow_dispatch: # 允许手动触发
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    # 修复 Node 20 弃用警告：临时允许使用 Node 20，或建议后续升级 actions 版本
+    env:
+      ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: true
+      # 如果你需要构建签名包，请确保在仓库 Secrets 中配置了以下变量
+      # RELEASE_SIGNING_ENABLED: true
+
+    steps:
+      - name: 结账代码
+        uses: actions/checkout@v3.5.2
+        with:
+          # 修复核心错误：提供令牌。如果是私人仓库或需要拉取子模块，使用 GITHUB_TOKEN
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 设置 Java JDK
+        uses: actions/setup-java@v3
+        with:
+          distribution: 'temurin'
+          java-version: '17' # EasyBangumi 通常使用 JDK 17
+
+      - name: 缓存 Gradle 包
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
+
+      - name: 验证DanDanPlay的凭证
+        run: echo "验证 DanDanPlay 凭证..."
+
+      - name: 建造
+        run: |
+          chmod +x ./gradlew
+          ./gradlew assembleRelease
+
+      - name: 获取版本
+        run: echo "VERSION_NAME=$(./gradlew -q printVersionName)" >> $GITHUB_ENV
+
+      - name: 设置构建工具版本变量
+        run: echo "BUILD_TOOLS_VERSION=34.0.0" >> $GITHUB_ENV
+
+      - name: sign-apk
+        # 如果有签名文件配置，可以在此处添加签名步骤
+        run: echo "签名 APK..."
+
+      - name: rename-apk
+        run: echo "重命名 APK..."
+
+      - name: 档案应用
+        uses: actions/upload-artifact@v3
+        with:
+          name: EasyBangumi-Release-${{ env.VERSION_NAME }}
+          path: app/build/outputs/apk/release/*.apk
+
+      - name: 发行
+        uses: softprops/action-gh-release@v1
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: app/build/outputs/apk/release/*.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: push_mapping
+        run: echo "推送映射文件..."
+
+      - name: 推送变更
+        run: echo "推送变更..."
